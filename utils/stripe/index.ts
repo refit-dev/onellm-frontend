@@ -4,6 +4,7 @@ import { stripe } from "@/lib/stripe";
 import supabase from "@/pages/api/supabase-server.component";
 import { OneLLMPayment, OneLLMSubscription } from "@/types/table";
 import Stripe from "stripe";
+import { getSubscriptionPeriodStart, getSubscriptionPeriodEnd } from './stripe-subscription-period';
 
 export const toDateTime = (secs: number) => {
   const t = new Date("1970-01-01T00:30:00Z"); // Unix epoch start.
@@ -101,10 +102,10 @@ export const manageSubscriptionStatusChange = async (
       ? toDateTime(subscription.canceled_at).toISOString()
       : null,
     current_period_start: toDateTime(
-      subscription.current_period_start
+      (getSubscriptionPeriodStart(subscription, (items) => items[0]))
     ).toISOString(),
     current_period_end: toDateTime(
-      subscription.current_period_end
+      (getSubscriptionPeriodEnd(subscription, (items) => items[0]))
     ).toISOString(),
     created: toDateTime(subscription.created).toISOString(),
     ended_at: subscription.ended_at
