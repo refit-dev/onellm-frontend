@@ -5,6 +5,33 @@ import supabase from "@/pages/api/supabase-server.component";
 import { OneLLMPayment, OneLLMSubscription } from "@/types/table";
 import Stripe from "stripe";
 
+type PeriodItem = { price?: { id?: string } | null };
+type PeriodField = 'current_period_start' | 'current_period_end';
+type PlanItem = (items: PeriodItem[]) => PeriodItem | undefined;
+
+// Typed like the removed field, which was also absent at runtime when Stripe omitted it.
+function subscriptionPeriod(subscription: object, field: PeriodField, planItem?: PlanItem): number {
+  const legacy: unknown = Reflect.get(subscription, field);
+  if (typeof legacy === 'number') return legacy;
+  const list: unknown = Reflect.get(subscription, 'items');
+  const data: unknown = list && typeof list === 'object' ? Reflect.get(list, 'data') : undefined;
+  const items = (Array.isArray(data) ? data : []).filter(
+    (item): item is PeriodItem => typeof item === 'object' && item !== null,
+  );
+  const periods = new Set(items.map((item) => Reflect.get(item, field)));
+  const chosen = periods.size === 1 ? items[0] : planItem?.(items);
+  const value: unknown = chosen ? Reflect.get(chosen, field) : undefined;
+  return (typeof value === 'number' ? value : undefined) as number;
+}
+
+function getSubscriptionPeriodStart(subscription: object, planItem?: PlanItem): number {
+  return subscriptionPeriod(subscription, 'current_period_start', planItem);
+}
+
+function getSubscriptionPeriodEnd(subscription: object, planItem?: PlanItem): number {
+  return subscriptionPeriod(subscription, 'current_period_end', planItem);
+}
+
 export const toDateTime = (secs: number) => {
   const t = new Date("1970-01-01T00:30:00Z"); // Unix epoch start.
   t.setSeconds(secs);
@@ -39,7 +66,7 @@ export const copyBillingDetailsToCustomer = async (
     .from("users")
     .update({
       billing_address: { ...address },
-      payment_method: JSON.stringify(payment_method[payment_method.type]),
+      payment_method: JSON.stringify(payment_method[payment_method.type as Extract<Stripe.PaymentMethod.Type, keyof Stripe.PaymentMethod>]),
     })
     .eq("id", userId)
     .select("*");
@@ -101,10 +128,10 @@ export const manageSubscriptionStatusChange = async (
       ? toDateTime(subscription.canceled_at).toISOString()
       : null,
     current_period_start: toDateTime(
-      subscription.current_period_start
+      (getSubscriptionPeriodStart(subscription, (items) => items[0]))
     ).toISOString(),
     current_period_end: toDateTime(
-      subscription.current_period_end
+      (getSubscriptionPeriodEnd(subscription, (items) => items[0]))
     ).toISOString(),
     created: toDateTime(subscription.created).toISOString(),
     ended_at: subscription.ended_at
